@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Người đẩy xe nhặt ve chai - Canvas Demo</title>
+  <style>
+    body {
+      margin: 0;
+      background: #222;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: system-ui, sans-serif;
+    }
+    canvas {
+      border: 2px solid #fff;
+      background: linear-gradient(#87ceeb 0%, #87ceeb 60%, #e0e0e0 60%, #c0c0c0 100%);
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene" width="900" height="400"></canvas>
+
+  <script>
+    const canvas = document.getElementById("scene");
+    const ctx = canvas.getContext("2d");
+
+    const groundY = 260;
+
+    // Trạng thái nhân vật + xe
+    const man = {
+      x: -150, // bắt đầu ngoài màn hình
+      y: groundY,
+      speed: 1.8,
+      step: 0
+    };
+
+    function drawGround() {
+      // đường trắng phân cách
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([12, 10]);
+      ctx.beginPath();
+      ctx.moveTo(0, groundY + 45);
+      ctx.lineTo(canvas.width, groundY + 45);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawManAndCart() {
+      const x = man.x;
+      const y = man.y;
+
+      // ---- Xe ve chai ----
+      const cartWidth = 120;
+      const cartHeight = 60;
+      const cartX = x + 20;
+      const cartY = y - cartHeight + 10;
+
+      // thân xe
+      ctx.fillStyle = "#616161";
+      ctx.fillRect(cartX, cartY, cartWidth, cartHeight);
+
+      // đồ ve chai bên trong (mấy cái cọc, chai)
+      ctx.fillStyle = "#b0bec5";
+      for (let i = 0; i < 4; i++) {
+        const bx = cartX + 10 + i * 25;
+        const h = 20 + (i % 2) * 10;
+        ctx.fillRect(bx, cartY - h, 10, h);
+      }
+
+      // tay đẩy (thanh nối xe với tay người)
+      ctx.strokeStyle = "#424242";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(cartX, cartY + 10);
+      ctx.lineTo(x, y - 35);
+      ctx.stroke();
+
+      // bánh xe
+      function drawWheel(wx, wy) {
+        ctx.beginPath();
+        ctx.arc(wx, wy, 16, 0, Math.PI * 2);
+        ctx.fillStyle = "#212121";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(wx, wy, 7, 0, Math.PI * 2);
+        ctx.fillStyle = "#b0bec5";
+        ctx.fill();
+      }
+
+      drawWheel(cartX + 25, cartY + cartHeight + 12);
+      drawWheel(cartX + cartWidth - 25, cartY + cartHeight + 12);
+
+      // ---- Người đàn ông ----
+      // đầu
+      ctx.beginPath();
+      ctx.arc(x - 15, y - 75, 14, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffcc80";
+      ctx.fill();
+
+      // mũ lưỡi trai
+      ctx.fillStyle = "#1565c0";
+      ctx.beginPath();
+      ctx.arc(x - 15, y - 80, 15, Math.PI, 0);
+      ctx.fill();
+      ctx.fillRect(x - 15, y - 82, 20, 6);
+
+      // thân
+      ctx.fillStyle = "#1976d2";
+      ctx.fillRect(x - 30, y - 60, 30, 35);
+
+      // chân (đổi tư thế để tạo cảm giác bước đi)
+      const stepPhase = Math.sin(man.step) * 7;
+
+      ctx.strokeStyle = "#424242";
+      ctx.lineWidth = 5;
+      ctx.lineCap = "round";
+
+      // chân trước
+      ctx.beginPath();
+      ctx.moveTo(x - 22, y - 25);
+      ctx.lineTo(x - 22 + stepPhase, y + 20);
+      ctx.stroke();
+
+      // chân sau
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y - 25);
+      ctx.lineTo(x - 8 - stepPhase, y + 20);
+      ctx.stroke();
+
+      // tay sau
+      ctx.beginPath();
+      ctx.moveTo(x - 25, y - 50);
+      ctx.lineTo(x - 40 - stepPhase * 0.3, y - 25);
+      ctx.stroke();
+
+      // tay trước (tay đẩy xe)
+      ctx.beginPath();
+      ctx.moveTo(x - 5, y - 50);
+      ctx.lineTo(x + 10, y - 35);
+      ctx.stroke();
+    }
+
+    function drawBackground() {
+      // vài tòa nhà đơn giản phía sau
+      const buildings = [
+        { x: 40, w: 80, h: 140 },
+        { x: 170, w: 100, h: 180 },
+        { x: 320, w: 70, h: 120 },
+        { x: 450, w: 90, h: 160 },
+        { x: 580, w: 110, h: 190 },
+        { x: 740, w: 70, h: 130 }
+      ];
+      ctx.fillStyle = "#90a4ae";
+      buildings.forEach(b => {
+        ctx.fillRect(b.x, groundY - b.h, b.w, b.h);
+      });
+    }
+
+    function update(delta) {
+      man.x += man.speed * delta * 0.06;
+      man.step += 0.12 * delta * 0.06;
+
+      // khi ra khỏi phải màn hình thì quay lại trái
+      if (man.x > canvas.width + 150) {
+        man.x = -150;
+      }
+    }
+
+    let lastTime = 0;
+    function loop(timestamp) {
+      const delta = timestamp - lastTime;
+      lastTime = timestamp;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      drawBackground();
+      drawGround();
+      update(delta);
+      drawManAndCart();
+
+      requestAnimationFrame(loop);
+    }
+
+    // bắt đầu animation
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
