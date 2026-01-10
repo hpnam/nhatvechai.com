@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mini 8-Ball (GitHub Pages)</title>
+  <style>
+    html,body{height:100%;margin:0;background:#111;color:#eee;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    #wrap{display:flex;align-items:center;justify-content:center;height:100%}
+    canvas{max-width:100vw;max-height:100vh;touch-action:none}
+    .hud{
+      position:fixed;left:12px;top:12px;background:rgba(0,0,0,.45);
+      padding:10px 12px;border-radius:12px;backdrop-filter: blur(6px);
+      font-size:14px;line-height:1.3
+    }
+    .hud b{font-weight:700}
+    .hud button{
+      margin-top:8px;background:#222;border:1px solid #444;color:#eee;border-radius:10px;
+      padding:6px 10px;cursor:pointer
+    }
+    .hud button:hover{border-color:#666}
+    .note{opacity:.85;font-size:12px;margin-top:6px}
+  </style>
+</head>
+<body>
+<div class="hud">
+  <div><b>Mini 8-Ball</b> (bản demo)</div>
+  <div>Kéo chuột để ngắm & lực, thả để đánh.</div>
+  <div class="note">Phím: R = xếp lại bi, Space = reset bi cái</div>
+  <button id="btnRack">Rack / Reset</button>
+</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+
+<script>
+(() => {
+  // ---------- Canvas & Scaling ----------
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  // Base resolution (table size). Render scaled to fit screen.
+  const BASE_W = 1100, BASE_H = 620;
+  canvas.width = BASE_W; canvas.height = BASE_H;
+
+  // ---------- Table Parameters ----------
+  const table = {
+    x: 70, y: 70,
+    w: BASE_W - 140,
+    h: BASE_H - 140,
+    cushion: 18,
+    pocketR: 26
+  };
+
+  // 6 pockets positions (corners + middles)
+  function pockets() {
+    const {x,y,w,h} = table;
+    return [
+      {x:x,     y:y},
+      {x:x+w/2, y:y},
+      {x:x+w,   y:y},
+      {x:x,     y:y+h},
+      {x:x+w/2, y:y+h},
+      {x:x+w,   y:y+h},
+    ];
+  }
+
+  // ---------- Physics Parameters ----------
+  const BALL_R = 12;
+  const REST_EPS = 0.03;
+  const FRICTION = 0.992;         // velocity multiplier per frame
+  const WALL_RESTITUTION = 0.98;  // bounce
+  const BALL_RESTITUTION = 0.985; // ball-ball bounce
+  const MAX_POWER = 22;
+
+  // ---------- Game State ----------
+  const balls = []; // {id, x,y, vx,vy, r, color, label, alive}
+  let cueBall = null;
+  let isAiming = false;
+  let aimStart = null;
+  let aimNow = null;
+  let showGuide = true;
+
+  // ---------- Utilities ----------
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const dist2 = (ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by; return dx*dx+dy*dy};
+  const len = (x,y)=>Math.hypot(x,y);
+  function anyBallMoving() {
+    return balls.some(b => b.alive && (Math.abs(b.vx) > REST_EPS || Math.abs(b.vy) > REST_EPS));
+  }
+
+  // ---------- Setup / Rack ----------
+  function reset() {
+    balls.length = 0;
+
+    // cue ball position (left side)
+    cueBall = makeBall(0, table.x + table.w*0.22, table.y + table.h*0.5, '#f2f2f2', 'CUE');
+
+    // create rack (triangle) on right side
+    const rackX = table.x + table.w*0.74;
+    const rackY = table.y + table.h*0.5;
+
+    // Colors: solids 1-7, 8 black, stripes 9-15 (just colors for demo)
+    const palette = {
+      1:'#f4d03f',2:'#2980b9',3:'#c0392b',4:'#8e44ad',5:'#e67e22',6:'#27ae60',7:'#7f8c8d',
+      8:'#111111',
+      9:'#f4d03f',10:'#2980b9',11:'#c0392b',12:'#8e44ad',13:'#e67e22',14:'#27ae60',15:'#7f8c8d'
+    };
+
+    // Simple 8-ball-ish arrangement (not strict tournament)
+    const order = [1,9,2,10,8,3,11,4,12,5,13,6,14,7,15];
+
+    let idx = 0;
+    const rowGap = BALL_R*2*0.87;
+    const colGap = BALL_R*2*1.02;
+
+    for (let row=0; row<5; row++){
+      for (let col=0; col<=row; col++){
+        const x = rackX + row * colGap;
+        const y = rackY + (col - row/2) * (BALL_R*2*0.98);
+        const n = order[idx++];
+        makeBall(n, x, y, palette[n], String(n));
+      }
+    }
+
+    // small random nudge to avoid perfect overlaps
+    for (const b of balls) {
+      if (b.id !== 0) {
+        b.x += (Math.random()-0.5)*0.4;
+        b.y += (Math.random()-0.5)*0.4;
+      }
+    }
+  }
+
+  function resetCueBall() {
+    cueBall.alive = true;
+    cueBall.x = table.x + table.w*0.22;
+    cueBall.y = table.y + table.h*0.5;
+    cueBall.vx = cueBall.vy = 0;
+  }
+
+  function makeBall(id,x,y,color,label){
+    const b = { id, x, y, vx:0, vy:0, r:BALL_R, color, label, alive:true, striped: (id>=9) };
+    balls.push(b);
+    return b;
+  }
+
+  // ---------- Input ----------
+  function canvasPosFromEvent(e) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const cx = (e.clientX - rect.left) * sx;
+    const cy = (e.clientY - rect.top) * sy;
+    return {x:cx,y:cy};
+  }
+
+  function onPointerDown(e){
+    if (!cueBall.alive) return;
+    if (anyBallMoving()) return;
+
+    const p = canvasPosFromEvent(e);
+    // only allow aiming if click near cue ball
+    const d = Math.hypot(p.x - cueBall.x, p.y - cueBall.y);
+    if (d <= cueBall.r*2.2){
+      isAiming = true;
+      aimStart = {x:cueBall.x, y:cueBall.y};
+      aimNow = p;
+    }
+  }
+  function onPointerMove(e){
+    if (!isAiming) return;
+    aimNow = canvasPosFromEvent(e);
+  }
+  function onPointerUp(){
+    if (!isAiming) return;
+    isAiming = false;
+
+    // shoot: vector from aimNow to cueBall (drag back)
+    const dx = cueBall.x - aimNow.x;
+    const dy = cueBall.y - aimNow.y;
+    const power = clamp(len(dx,dy)/14, 0, MAX_POWER);
+
+    // normalize
+    const L = Math.max(1e-6, len(dx,dy));
+    const ux = dx / L, uy = dy / L;
+
+    cueBall.vx += ux * power;
+    cueBall.vy += uy * power;
+  }
+
+  canvas.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+
+  document.getElementById('btnRack').addEventListener('click', reset);
+  window.addEventListener('keydown', (e)=>{
+    if (e.code === 'KeyR') reset();
+    if (e.code === 'Space') resetCueBall();
+    if (e.code === 'KeyG') showGuide = !showGuide;
+  });
+
+  // ---------- Physics ----------
+  function stepPhysics(){
+    // Move
+    for (const b of balls) {
+      if (!b.alive) continue;
+      b.x += b.vx;
+      b.y += b.vy;
+      b.vx *= FRICTION;
+      b.vy *= FRICTION;
+      if (Math.abs(b.vx) < REST_EPS) b.vx = 0;
+      if (Math.abs(b.vy) < REST_EPS) b.vy = 0;
+    }
+
+    // Wall collisions (inside cushions)
+    const left = table.x + table.cushion + BALL_R;
+    const right = table.x + table.w - table.cushion - BALL_R;
+    const top = table.y + table.cushion + BALL_R;
+    const bottom = table.y + table.h - table.cushion - BALL_R;
+
+    for (const b of balls){
+      if (!b.alive) continue;
+
+      if (b.x < left){ b.x = left; b.vx = Math.abs(b.vx) * WALL_RESTITUTION; }
+      if (b.x > right){ b.x = right; b.vx = -Math.abs(b.vx) * WALL_RESTITUTION; }
+      if (b.y < top){ b.y = top; b.vy = Math.abs(b.vy) * WALL_RESTITUTION; }
+      if (b.y > bottom){ b.y = bottom; b.vy = -Math.abs(b.vy) * WALL_RESTITUTION; }
+    }
+
+    // Ball-ball collisions (naive O(n^2), ok for 16 balls)
+    for (let i=0;i<balls.length;i++){
+      const a = balls[i]; if(!a.alive) continue;
+      for (let j=i+1;j<balls.length;j++){
+        const b = balls[j]; if(!b.alive) continue;
+
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx,dy);
+        const minD = a.r + b.r;
+        if (d > 0 && d < minD){
+          // push apart
+          const overlap = (minD - d);
+          const nx = dx/d, ny = dy/d;
+          a.x -= nx * overlap/2; a.y -= ny * overlap/2;
+          b.x += nx * overlap/2; b.y += ny * overlap/2;
+
+          // relative velocity along normal
+          const rvx = b.vx - a.vx;
+          const rvy = b.vy - a.vy;
+          const velAlongNormal = rvx*nx + rvy*ny;
+
+          // if separating, skip impulse
+          if (velAlongNormal > 0) continue;
+
+          // equal mass
+          const jImpulse = -(1 + BALL_RESTITUTION) * velAlongNormal / 2;
+          const ix = jImpulse * nx;
+          const iy = jImpulse * ny;
+
+          a.vx -= ix; a.vy -= iy;
+          b.vx += ix; b.vy += iy;
+        }
+      }
+    }
+
+    // Pocket detection
+    const ps = pockets();
+    for (const b of balls){
+      if (!b.alive) continue;
+      for (const p of ps){
+        const rr = table.pocketR;
+        if (dist2(b.x,b.y,p.x,p.y) < (rr*rr)){
+          // pocketed
+          b.alive = false;
+          b.vx = b.vy = 0;
+          // cue ball scratch -> reset after short delay
+          if (b.id === 0){
+            setTimeout(resetCueBall, 450);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // ---------- Render ----------
+  function drawTable(){
+    const {x,y,w,h,cushion,pocketR} = table;
+
+    // Background
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // Outer frame
+    ctx.fillStyle = '#3a2a1c';
+    roundRect(ctx, x-38, y-38, w+76, h+76, 30);
+    ctx.fill();
+
+    // Cloth
+    ctx.fillStyle = '#0a6b4f';
+    roundRect(ctx, x, y, w, h, 26);
+    ctx.fill();
+
+    // Inner playable area (inside cushions)
+    ctx.fillStyle = '#0a5f46';
+    roundRect(ctx, x+cushion, y+cushion, w-2*cushion, h-2*cushion, 18);
+    ctx.fill();
+
+    // Pockets
+    ctx.fillStyle = '#0b0b0b';
+    for (const p of pockets()){
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, pocketR, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // Subtle rails
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, x+cushion, y+cushion, w-2*cushion, h-2*cushion, 18);
+    ctx.stroke();
+  }
+
+  function drawBalls(){
+    for (const b of balls){
+      if (!b.alive) continue;
+
+      // shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath();
+      ctx.arc(b.x+3, b.y+4, b.r*1.02, 0, Math.PI*2);
+      ctx.fill();
+
+      // ball body
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.fill();
+
+      // stripe (for 9-15)
+      if (b.striped && b.id !== 0){
+        ctx.fillStyle = 'rgba(245,245,245,0.92)';
+        ctx.beginPath();
+        ctx.ellipse(b.x, b.y, b.r*1.0, b.r*0.55, 0, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      // highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.arc(b.x - b.r*0.35, b.y - b.r*0.35, b.r*0.35, 0, Math.PI*2);
+      ctx.fill();
+
+      // label circle
+      if (b.id !== 0){
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r*0.48, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.fillStyle = '#111';
+        ctx.font = 'bold 10px system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.label, b.x, b.y+0.5);
+      } else {
+        // cue ball dot
+        ctx.fillStyle = 'rgba(0,0,0,0.12)';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r*0.22, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawAim(){
+    if (!showGuide) return;
+    if (!cueBall.alive) return;
+    if (anyBallMoving()) return;
+
+    // show a faint line from cue ball to mouse if aiming
+    if (isAiming && aimNow){
+      const dx = cueBall.x - aimNow.x;
+      const dy = cueBall.y - aimNow.y;
+      const power = clamp(len(dx,dy)/14, 0, MAX_POWER);
+
+      // guide line (direction)
+      const L = Math.max(1e-6, len(dx,dy));
+      const ux = dx / L, uy = dy / L;
+
+      // line backwards (drag) + forward projection
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cueBall.x, cueBall.y);
+      ctx.lineTo(cueBall.x + ux * 240, cueBall.y + uy * 240);
+      ctx.stroke();
+
+      // power bar near cue
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      roundRect(ctx, cueBall.x - 60, cueBall.y + 26, 120, 10, 6); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      roundRect(ctx, cueBall.x - 60, cueBall.y + 26, 120*(power/MAX_POWER), 10, 6); ctx.fill();
+
+      // cue stick line (opposite direction)
+      ctx.strokeStyle = 'rgba(222,186,120,0.9)';
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cueBall.x - ux*16, cueBall.y - uy*16);
+      ctx.lineTo(cueBall.x - ux*(70 + power*8), cueBall.y - uy*(70 + power*8));
+      ctx.stroke();
+    }
+  }
+
+  function draw(){
+    drawTable();
+    drawBalls();
+    drawAim();
+
+    // status small
+    const remaining = balls.filter(b=>b.alive && b.id!==0).length;
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`Còn lại: ${remaining} bi`, canvas.width - 16, 14);
+    ctx.textAlign = 'left';
+  }
+
+  // ---------- Helpers ----------
+  function roundRect(ctx, x, y, w, h, r){
+    r = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+
+  // ---------- Main Loop ----------
+  function loop(){
+    stepPhysics();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  reset();
+  loop();
+})();
+</script>
+</body>
+</html>
