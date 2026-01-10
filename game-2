@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird Việt - Cố Lên! (Có Âm Thanh)</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(to bottom, skyblue, lightblue);
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 2px solid #333;
+            background: linear-gradient(to bottom, #87CEEB, #98D8E9);
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
+            max-width: 100%;
+            max-height: 100vh;
+        }
+        .instructions {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px black;
+        }
+        .sound-info {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            font-size: 12px;
+            text-shadow: 1px 1px 2px black;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="instructions">
+        Nhấn <strong>SPACE</strong> hoặc <strong>CLICK/TOUCH</strong> để nhảy!<br>
+        Điểm cao: <span id="highScore">0</span>
+    </div>
+    <div class="sound-info">
+        🔊 "Cố lên cố lên, sắp tới rồi sắp tới rồi!"<br>
+        Phát tự động mỗi <strong>10 giây</strong> một lần! 🎤
+    </div>
+    <canvas id="canvas" width="400" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const WIDTH = canvas.width;
+        const HEIGHT = canvas.height;
+
+        // Trạng thái game
+        let bird = { x: 80, y: HEIGHT / 2, vy: 0, radius: 18 };
+        let gravity = 0.4;
+        let jumpForce = -9;
+        let pipes = [];
+        let score = 0;
+        let highScore = localStorage.getItem('flappyHighScore') || 0;
+        let gameOver = false;
+        let frame = 0;
+        let lastSpeechTime = 0;
+        const SPEECH_INTERVAL = 10000; // 10 giây (ms)
+        const PIPE_WIDTH = 60;
+        const PIPE_GAP = 220;
+        const PIPE_SPEED = 2.5;
+        const PIPE_INTERVAL = 110;
+
+        // Cập nhật high score
+        document.getElementById('highScore').textContent = highScore;
+
+        // Speech Synthesis
+        let utterance;
+        function initSpeech() {
+            utterance = new SpeechSynthesisUtterance('Cố lên cố lên, sắp tới rồi sắp tới rồi!');
+            utterance.lang = 'vi-VN';
+            utterance.rate = 1.6;  // Nhanh để fit game
+            utterance.pitch = 1.3; // Vui vẻ
+            utterance.volume = 0.9;
+        }
+        function speak() {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel(); // Dừng queue cũ
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        // Khởi tạo speech
+        initSpeech();
+
+        // Reset game
+        function reset() {
+            bird.y = HEIGHT / 2;
+            bird.vy = 0;
+            pipes = [];
+            score = 0;
+            gameOver = false;
+            frame = 0;
+            lastSpeechTime = 0;
+            window.speechSynthesis.cancel(); // Dừng âm thanh khi reset
+            speak(); // Phát ngay khi bắt đầu game mới
+        }
+
+        // Vẽ ống (giữ nguyên)
+        function drawPipe(pipe) {
+            const capHeight = 35;
+            const capOverhang = 15;
+
+            ctx.fillStyle = '#4A7C2A';
+            ctx.strokeStyle = '#3A5C1A';
+            ctx.lineWidth = 3;
+
+            // Ống trên
+            ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.top);
+            ctx.strokeRect(pipe.x, 0, PIPE_WIDTH, pipe.top);
+            // Nắp trên
+            ctx.fillRect(pipe.x - capOverhang, pipe.top - capHeight, PIPE_WIDTH + 2 * capOverhang, capHeight);
+            ctx.strokeRect(pipe.x - capOverhang, pipe.top - capHeight, PIPE_WIDTH + 2 * capOverhang, capHeight);
+
+            // Ống dưới
+            const lowerY = pipe.top + PIPE_GAP;
+            ctx.fillRect(pipe.x, lowerY, PIPE_WIDTH, HEIGHT - 80 - lowerY);
+            ctx.strokeRect(pipe.x, lowerY, PIPE_WIDTH, HEIGHT - 80 - lowerY);
+            // Nắp dưới
+            ctx.fillRect(pipe.x - capOverhang, lowerY, PIPE_WIDTH + 2 * capOverhang, capHeight);
+            ctx.strokeRect(pipe.x - capOverhang, lowerY, PIPE_WIDTH + 2 * capOverhang, capHeight);
+        }
+
+        // Vẽ chim (giữ nguyên)
+        function drawBird() {
+            ctx.save();
+            ctx.translate(bird.x, bird.y);
+            const rotation = Math.min(Math.max(bird.vy * 0.08, -0.3), 0.8);
+            ctx.rotate(rotation);
+
+            // Thân chim
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, bird.radius);
+            gradient.addColorStop(0, '#FFD700');
+            gradient.addColorStop(1, '#FFA500');
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(0, 0, bird.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#FF8C00';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Mắt
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(12, -6, 9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(15, -6, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(17, -8, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Mỏ
+            ctx.fillStyle = '#FF4500';
+            ctx.beginPath();
+            ctx.moveTo(bird.radius, -2);
+            ctx.lineTo(bird.radius + 18, -2);
+            ctx.lineTo(bird.radius + 22, 0);
+            ctx.lineTo(bird.radius + 18, 4);
+            ctx.lineTo(bird.radius, 2);
+            ctx.fill();
+
+            // Cánh
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.6)';
+            ctx.beginPath();
+            ctx.ellipse(-5, 5, 12, 8, 0.3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // Vẽ bong bóng thoại (thêm hiệu ứng khi đang nói)
+        function drawSpeechBubble() {
+            const bubbleX = bird.x - 60;
+            const bubbleY = bird.y - 100;
+            const bubbleWidth = 220;
+            const bubbleHeight = 70;
+
+            // Kiểm tra đang nói không (hiệu ứng rung mạnh hơn)
+            const isSpeaking = window.speechSynthesis.speaking;
+
+            // Bong bóng
+            ctx.fillStyle = isSpeaking ? '#FFF8DC' : 'white'; // Vàng nhạt khi nói
+            ctx.strokeStyle = isSpeaking ? '#FFD700' : 'black';
+            ctx.lineWidth = isSpeaking ? 4 : 3;
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 15);
+            ctx.fill();
+            ctx.stroke();
+
+            // Đuôi bong bóng
+            ctx.beginPath();
+            ctx.moveTo(bubbleX + 90, bubbleY + bubbleHeight);
+            ctx.lineTo(bubbleX + 110, bubbleY + bubbleHeight + 20);
+            ctx.lineTo(bubbleX + 130, bubbleY + bubbleHeight);
+            ctx.fill();
+            ctx.stroke();
+
+            // Text với rung khi nói
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 16px Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const shake = isSpeaking ? Math.sin(frame * 0.3) * 3 : Math.sin(frame * 0.5) * 2;
+            ctx.fillText('Cố lên cố lên,', bubbleX + bubbleWidth / 2 + shake, bubbleY + 25);
+            ctx.fillText('sắp tới rồi sắp tới rồi!', bubbleX + bubbleWidth / 2 + shake, bubbleY + 50);
+
+            // Hiệu ứng glow khi nói
+            if (isSpeaking) {
+                ctx.shadowColor = 'gold';
+                ctx.shadowBlur = 15;
+                ctx.fillText('Cố lên cố lên,', bubbleX + bubbleWidth / 2 + shake, bubbleY + 25);
+                ctx.fillText('sắp tới rồi sắp tới rồi!', bubbleX + bubbleWidth / 2 + shake, bubbleY + 50);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // Vẽ nền (giữ nguyên)
+        function drawBackground() {
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+            skyGrad.addColorStop(0, '#87CEEB');
+            skyGrad.addColorStop(0.5, '#B0E0E6');
+            skyGrad.addColorStop(1, '#E0F6FF');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.8)';
+            ctx.strokeStyle = 'rgba(255, 200, 0, 0.8)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(340, 70, 35, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            const groundGrad = ctx.createLinearGradient(0, HEIGHT - 80, 0, HEIGHT);
+            groundGrad.addColorStop(0, '#90EE90');
+            groundGrad.addColorStop(1, '#228B22');
+            ctx.fillStyle = groundGrad;
+            ctx.fillRect(0, HEIGHT - 80, WIDTH, 80);
+
+            ctx.fillStyle = '#32CD32';
+            for (let i = 0; i < WIDTH; i += 15) {
+                ctx.beginPath();
+                ctx.moveTo(i, HEIGHT - 80);
+                ctx.lineTo(i + 7 + Math.sin(frame * 0.1 + i * 0.01) * 2, HEIGHT - 100);
+                ctx.lineTo(i + 14, HEIGHT - 80);
+                ctx.fill();
+            }
+        }
+
+        // Vẽ UI (giữ nguyên)
+        function drawUI() {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 2;
+            ctx.font = 'bold 48px Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const scoreText = score.toString();
+            const scoreW = ctx.measureText(scoreText).width;
+            ctx.beginPath();
+            ctx.roundRect(WIDTH / 2 - scoreW / 2 - 10, 40, scoreW + 20, 70, 15);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 52px Arial, sans-serif';
+            ctx.fillText(scoreText, WIDTH / 2, 75);
+
+            if (gameOver) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                ctx.fillStyle = 'white';
+                ctx.strokeStyle = 'gold';
+                ctx.lineWidth = 4;
+                ctx.font = 'bold 40px Arial, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const gameOverW = ctx.measureText('GAME OVER').width;
+                ctx.beginPath();
+                ctx.roundRect(WIDTH / 2 - gameOverW / 2 - 15, HEIGHT / 2 - 100, gameOverW + 30, 60, 15);
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#FF4500';
+                ctx.font = 'bold 44px Arial, sans-serif';
+                ctx.fillText('GAME OVER', WIDTH / 2, HEIGHT / 2 - 70);
+
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 28px Arial, sans-serif';
+                const restartW = ctx.measureText('SPACE để chơi lại!').width;
+                ctx.beginPath();
+                ctx.roundRect(WIDTH / 2 - restartW / 2 - 10, HEIGHT / 2 + 20, restartW + 20, 50, 12);
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#32CD32';
+                ctx.font = 'bold 26px Arial, sans-serif';
+                ctx.fillText('SPACE để chơi lại!', WIDTH / 2, HEIGHT / 2 + 45);
+
+                if (score > highScore) {
+                    highScore = score;
+                    localStorage.setItem('flappyHighScore', highScore);
+                    document.getElementById('highScore').textContent = highScore;
+                }
+            }
+        }
+
+        // Cập nhật logic (thêm speech timer)
+        function update() {
+            if (gameOver) return;
+
+            frame++;
+
+            // Phát âm thanh mỗi 10s
+            const now = performance.now();
+            if (now - lastSpeechTime > SPEECH_INTERVAL) {
+                speak();
+                lastSpeechTime = now;
+            }
+
+            // Vật lý chim
+            bird.vy += gravity;
+            bird.y += bird.vy;
+
+            if (bird.y + bird.radius > HEIGHT - 80 || bird.y - bird.radius < 0) {
+                gameOver = true;
+            }
+
+            if (frame % PIPE_INTERVAL === 0) {
+                const topHeight = 100 + Math.random() * (HEIGHT - 350 - PIPE_GAP);
+                pipes.push({ x: WIDTH, top: topHeight, passed: false });
+            }
+
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                const pipe = pipes[i];
+                pipe.x -= PIPE_SPEED;
+
+                if (pipe.x + PIPE_WIDTH < 0) {
+                    pipes.splice(i, 1);
+                    continue;
+                }
+
+                if (bird.x + bird.radius > pipe.x && bird.x - bird.radius < pipe.x + PIPE_WIDTH) {
+                    if (bird.y - bird.radius < pipe.top || bird.y + bird.radius > pipe.top + PIPE_GAP) {
+                        gameOver = true;
+                    }
+                }
+
+                if (!pipe.passed && pipe.x + PIPE_WIDTH < bird.x) {
+                    pipe.passed = true;
+                    score++;
+                }
+            }
+        }
+
+        // Vẽ toàn bộ
+        function draw() {
+            drawBackground();
+            pipes.forEach(drawPipe);
+            drawBird();
+            drawSpeechBubble();
+            drawUI();
+        }
+
+        // Game loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Điều khiển
+        function jump() {
+            if (gameOver) {
+                reset();
+            } else {
+                bird.vy = jumpForce;
+                // Phát thêm khi nhảy để khích lệ (tùy chọn, không lặp)
+                if (Math.random() < 0.3) speak(); // 30% cơ hội
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                jump();
+            }
+        });
+
+        canvas.addEventListener('click', jump);
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            jump();
+        });
+
+        // Tự động bắt đầu và phát speech đầu tiên
+        window.speechSynthesis.cancel(); // Clear nếu có
+        speak(); // Test speech ngay khi load
+
+        gameLoop();
+    </script>
+</body>
+</html>
