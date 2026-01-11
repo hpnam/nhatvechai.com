@@ -47,7 +47,7 @@
 <button id="btn">▶</button>
 
 <script>
-  const TEXT = "Đụ má tụi mầy";   // câu cần nói
+  const TEXT = "Đụ má mầy";   // câu cần nói
   const synth = window.speechSynthesis;
   const btn = document.getElementById("btn");
 
@@ -78,8 +78,8 @@
     // 🎲 RANDOM mỗi lần nói
     //u.rate  = random(0.7, 1.4);  // tốc độ
     //u.pitch = random(0.6, 1.8);  // cao độ
-    u.rate  = random(0.1, 10.4);  // tốc độ
-    u.pitch = random(0.1, 10.8);  // cao độ
+    u.rate  = random(0.1, 2.4);  // tốc độ
+    u.pitch = random(0.1, 2.8);  // cao độ
 
     u.onend = () => {
       if (!looping) return;
