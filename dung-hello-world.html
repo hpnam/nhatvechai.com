@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hello world</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      display: grid;
+      place-items: center;
+      background: #0b0f14;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    }
+
+    /* NÚT TRÒN DUY NHẤT */
+    #btn {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      font-size: 22px;
+      font-weight: 600;
+      color: #fff;
+      background: rgba(255,255,255,0.1);
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+      transition: transform .1s ease, background .2s ease;
+      display: grid;
+      place-items: center;
+    }
+
+    #btn:active {
+      transform: scale(0.96);
+    }
+
+    #btn.on {
+      background: rgba(0, 220, 140, 0.25);
+    }
+  </style>
+</head>
+<body>
+
+<button id="btn">▶</button>
+
+<script>
+  const TEXT = "Đụ má tụi mầy";   // câu cần nói
+  const synth = window.speechSynthesis;
+  const btn = document.getElementById("btn");
+
+  let looping = false;
+
+  function random(min, max) {
+    return Math.random() * (max - min) + min;
+  }
+
+  function speakLoop() {
+    if (!looping) return;
+
+    const u = new SpeechSynthesisUtterance(TEXT);
+
+    // Ưu tiên voice tiếng Việt nếu có
+    const voices = synth.getVoices();
+    const viVoice =
+      voices.find(v => (v.lang || "").toLowerCase().startsWith("vi")) ||
+      voices.find(v => (v.name || "").toLowerCase().includes("vietnam"));
+
+    if (viVoice) {
+      u.voice = viVoice;
+      u.lang = viVoice.lang || "vi-VN";
+    } else {
+      u.lang = "vi-VN";
+    }
+
+    // 🎲 RANDOM mỗi lần nói
+    //u.rate  = random(0.7, 1.4);  // tốc độ
+    //u.pitch = random(0.6, 1.8);  // cao độ
+    u.rate  = random(0.1, 10.4);  // tốc độ
+    u.pitch = random(0.1, 10.8);  // cao độ
+
+    u.onend = () => {
+      if (!looping) return;
+      setTimeout(speakLoop, 0); // nghỉ nhẹ rồi nói tiếp
+    };
+
+    u.onerror = () => {
+      looping = false;
+      synth.cancel();
+      btn.classList.remove("on");
+      btn.textContent = "▶";
+    };
+
+    synth.speak(u);
+  }
+
+  function start() {
+    looping = true;
+    synth.cancel();
+    btn.classList.add("on");
+    btn.textContent = "■";
+    speakLoop();
+  }
+
+  function stop() {
+    looping = false;
+    synth.cancel();
+    btn.classList.remove("on");
+    btn.textContent = "▶";
+  }
+
+  btn.addEventListener("click", () => {
+    if (looping) stop();
+    else start();
+  });
+
+  // load voices async (Chrome / Edge)
+  if (typeof synth.onvoiceschanged !== "undefined") {
+    synth.onvoiceschanged = () => {};
+  }
+</script>
+
+</body>
+</html>
