@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Đua Thủy Sinh – Cua vs Cá</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0b2c3d;
+      color: #fff;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 { margin: 10px 0 5px; }
+
+    .tracks {
+      display: flex;
+      gap: 20px;
+      flex: 1;
+      width: 100%;
+      max-width: 600px;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    .track {
+      flex: 1;
+      border: 2px solid #66c;
+      border-radius: 12px;
+      position: relative;
+      background: linear-gradient(180deg, #1b4f72 0%, #1b4f72 95%, #2ecc71 95%);
+      overflow: hidden;
+    }
+
+    .label {
+      text-align: center;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .avatar {
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 40px;
+      transition: bottom 0.05s;
+    }
+
+    .controls {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      gap: 20px;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+
+    button {
+      flex: 1;
+      font-size: 22px;
+      padding: 25px 10px;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+    }
+
+    #btnCua { background: #e74c3c; color: #fff; }
+    #btnCa { background: #3498db; color: #fff; }
+
+    #status { margin: 8px; font-size: 18px; }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    .win-box {
+      background: linear-gradient(180deg, #ffeaa7, #fab1a0);
+      color: #2d3436;
+      padding: 30px 40px;
+      border-radius: 20px;
+      text-align: center;
+      font-size: 28px;
+      animation: pop 0.4s ease-out;
+    }
+
+    .win-box button {
+      margin-top: 20px;
+      font-size: 20px;
+      padding: 12px 24px;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+    }
+
+    @keyframes pop {
+      0% { transform: scale(0.6); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🏁 Cua 🦀 vs Cá 🐟</h1>
+  <p>Đua bằng cách bấm nút thật nhanh (tối ưu cho iPad)</p>
+
+  <div class="tracks">
+    <div class="track" id="trackCua">
+      <div class="label">Cua</div>
+      <div class="avatar" id="cua">🦀</div>
+    </div>
+    <div class="track" id="trackCa">
+      <div class="label">Cá</div>
+      <div class="avatar" id="ca">🐟</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="btnCua">🦀 Cua</button>
+    <button id="btnCa">🐟 Cá</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="overlay" id="overlay">
+    <div class="win-box" id="winBox">
+      <div id="winText"></div>
+      <button onclick="resetGame()">🔄 Chơi lại</button>
+    </div>
+  </div>
+
+  <script>
+    const trackHeight = () => document.getElementById('trackCua').clientHeight;
+    let posCua = 0;
+    let posCa = 0;
+    let gameOver = false;
+
+    const cua = document.getElementById('cua');
+    const ca = document.getElementById('ca');
+    const status = document.getElementById('status');
+
+    document.getElementById('btnCua').onclick = () => move('cua');
+    document.getElementById('btnCa').onclick = () => move('ca');
+
+    function move(player) {
+      if (gameOver) return;
+      const step = Math.random() * 12 + 8;
+      const finish = trackHeight() - 60;
+
+      if (player === 'cua') {
+        posCua += step;
+        cua.style.bottom = posCua + 'px';
+        if (posCua >= finish) win('Cua 🦀');
+      } else {
+        posCa += step;
+        ca.style.bottom = posCa + 'px';
+        if (posCa >= finish) win('Cá 🐟');
+      }
+    }
+
+    function win(name) {
+      gameOver = true;
+      document.getElementById('winText').textContent = `🏆 ${name} VỀ ĐÍCH RỒI!!!`;
+      document.getElementById('overlay').style.display = 'flex';
+    }
+
+    function resetGame() {
+      posCua = 0;
+      posCa = 0;
+      gameOver = false;
+      cua.style.bottom = '0px';
+      ca.style.bottom = '0px';
+      document.getElementById('overlay').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
