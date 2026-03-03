@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>String Art Generator</title>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #f4f6f9;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+}
+
+h2 {
+    margin-bottom: 20px;
+}
+
+.container {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 300px;
+}
+
+canvas {
+    border: 1px solid #ccc;
+    background: white;
+    max-width: 500px;
+}
+
+textarea {
+    height: 150px;
+    font-family: monospace;
+    font-size: 12px;
+    resize: none;
+}
+
+button {
+    padding: 10px;
+    cursor: pointer;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    transition: 0.2s;
+}
+
+button:hover {
+    background: #0056b3;
+}
+</style>
+</head>
+
+<body>
+
+<h2>🎨 String Art Generator</h2>
+
+<div class="container">
+
+<div class="controls">
+
+<label>Chọn ảnh:</label>
+<input type="file" id="imageInput" accept="image/*">
+
+<label>Số đinh: <span id="nailVal">240</span></label>
+<input type="range" id="nails" min="100" max="360" value="240">
+
+<label>Số đường chỉ: <span id="lineVal">2000</span></label>
+<input type="range" id="lines" min="500" max="5000" value="2000">
+
+<label>Độ tương phản:</label>
+<input type="range" id="contrast" min="-100" max="100" value="30">
+
+<button id="generateBtn">Bắt đầu tạo tranh</button>
+
+<label>Thứ tự đinh:</label>
+<textarea id="outputCoords" readonly></textarea>
+
+</div>
+
+<div>
+<canvas id="canvas" width="500" height="500"></canvas>
+<p style="text-align:center">Mô phỏng kết quả</p>
+</div>
+
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const imageInput = document.getElementById('imageInput');
+const generateBtn = document.getElementById('generateBtn');
+
+['nails','lines'].forEach(id => {
+    document.getElementById(id).oninput = e => {
+        document.getElementById(id.slice(0,-1)+'Val').innerText = e.target.value;
+    }
+});
+
+let imgElement = new Image();
+
+imageInput.onchange = e => {
+    const reader = new FileReader();
+    reader.onload = event => imgElement.src = event.target.result;
+    reader.readAsDataURL(e.target.files[0]);
+};
+
+imgElement.onload = () => {
+    ctx.clearRect(0,0,500,500);
+    ctx.drawImage(imgElement, 0, 0, 500, 500);
+};
+
+function applyContrast(data, contrast) {
+    const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+    for (let i = 0; i < data.length; i += 4) {
+        let avg = (data[i] + data[i+1] + data[i+2]) / 3;
+        avg = factor * (avg - 128) + 128;
+        avg = Math.max(0, Math.min(255, avg));
+        data[i] = data[i+1] = data[i+2] = avg;
+    }
+}
+
+generateBtn.onclick = () => {
+
+if (!imgElement.src) {
+    alert("Vui lòng chọn ảnh!");
+    return;
+}
+
+const numNails = +document.getElementById('nails').value;
+const numLines = +document.getElementById('lines').value;
+const contrastVal = +document.getElementById('contrast').value;
+
+const centerX = 250;
+const centerY = 250;
+const radius = 245;
+
+ctx.drawImage(imgElement, 0, 0, 500, 500);
+let imgDataObj = ctx.getImageData(0, 0, 500, 500);
+applyContrast(imgDataObj.data, contrastVal);
+
+const nails = [];
+for (let i = 0; i < numNails; i++) {
+    const angle = (i * 2 * Math.PI) / numNails;
+    nails.push({
+        x: Math.floor(centerX + radius * Math.cos(angle)),
+        y: Math.floor(centerY + radius * Math.sin(angle))
+    });
+}
+
+let pixels = imgDataObj.data;
+let currentNail = 0;
+let sequence = [0];
+
+ctx.fillStyle = "white";
+ctx.fillRect(0,0,500,500);
+ctx.strokeStyle = "rgba(0,0,0,0.4)";
+ctx.lineWidth = 0.5;
+
+for (let l = 0; l < numLines; l++) {
+
+    let bestNext = -1;
+    let maxDark = -1;
+
+    for (let n = 0; n < numNails; n++) {
+        if (Math.abs(currentNail - n) < 10) continue;
+        let d = getLineDarkness(nails[currentNail], nails[n], pixels);
+        if (d > maxDark) {
+            maxDark = d;
+            bestNext = n;
+        }
+    }
+
+    if (bestNext === -1) break;
+
+    ctx.beginPath();
+    ctx.moveTo(nails[currentNail].x, nails[currentNail].y);
+    ctx.lineTo(nails[bestNext].x, nails[bestNext].y);
+    ctx.stroke();
+
+    subtractLine(nails[currentNail], nails[bestNext], pixels);
+
+    currentNail = bestNext;
+    sequence.push(currentNail);
+}
+
+document.getElementById('outputCoords').value = sequence.join(', ');
+};
+
+function getLineDarkness(p1, p2, pixels) {
+    let sum = 0, count = 0;
+    let dx = Math.abs(p2.x - p1.x);
+    let dy = Math.abs(p2.y - p1.y);
+    let sx = p1.x < p2.x ? 1 : -1;
+    let sy = p1.y < p2.y ? 1 : -1;
+    let err = dx - dy;
+    let x = p1.x;
+    let y = p1.y;
+
+    while(true) {
+        let idx = (y * 500 + x) * 4;
+        sum += (255 - pixels[idx]);
+        count++;
+        if (x === p2.x && y === p2.y) break;
+        let e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 < dx) { err += dx; y += sy; }
+    }
+    return sum / count;
+}
+
+function subtractLine(p1, p2, pixels) {
+    let dx = Math.abs(p2.x - p1.x);
+    let dy = Math.abs(p2.y - p1.y);
+    let sx = p1.x < p2.x ? 1 : -1;
+    let sy = p1.y < p2.y ? 1 : -1;
+    let err = dx - dy;
+    let x = p1.x;
+    let y = p1.y;
+
+    while(true) {
+        let idx = (y * 500 + x) * 4;
+        pixels[idx] = Math.min(255, pixels[idx] + 50);
+        if (x === p2.x && y === p2.y) break;
+        let e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 < dx) { err += dx; y += sy; }
+    }
+}
+</script>
+
+</body>
+</html>
